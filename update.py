@@ -143,7 +143,7 @@ if __name__ == "__main__":
         exit(1)
 
     # Determine whether we are using DB or not
-    if os.path.isfile(path_pihole_db) and os.path.getsize(path_pihole_db) > 0:
+    if not os.path.isfile(path_pihole_db) or os.path.getsize(path_pihole_db) <= 0:
         logging.error("Pi-Hole DB not detected")
         exit(1)
 
