@@ -7,7 +7,10 @@ from typing import Final
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-standard_comment = "pi-hole-config: "
+STANDARD_COMMENT = "pi-hole-config: "
+REGEX_INDEX = 0
+COMMENT_INDEX = 1
+GROUPS_INDEX = 2
 
 logging.basicConfig(filename="pihole-config.log", encoding="utf-8", level=logging.DEBUG)
 
@@ -16,7 +19,7 @@ def verify(path):
     """
     Verifies the provided path exists and is accessible.
 
-    Parameters:
+    Args:
         path (str): The path to verify.
 
     Returns:
@@ -26,99 +29,124 @@ def verify(path):
         logging.error(f"{path} was not found")
         return False
     if not os.access(path, os.X_OK | os.W_OK):
-        logging.error(
-            f"Write access is not available for {path}. Please run as root or other privileged user"
-        )
+        logging.error("Write access is not available for. Please run as root or other privileged user".format(path))
         return False
     return True
 
 
 def read(path):
+    """
+    Reads in the configuration data from a path.
+
+    Args:
+        path (str): The path to the `csv` to be read in.
+
+    Returns:
+        list: A list of all lines from the `csv`.
+    """
+    regex_list = list()
     with open(path, "r") as file:
         regex_list = file.readlines()
-        regex_list.update(
-            x for x in map(str.strip, regex_list.splitlines()) if x and x[:1] != "#"
-        )
+        regex_list.update(x for x in map(str.strip, regex_list.splitlines()) if x and x[:1] != "#")
+    return regex_list
 
+def parse(config_list):
+    """
+    Converts a list of regular expressions read in from a csv into a list of tuples
+    of the form: [<regular expression>, <comment>, <associated groups>]
 
-# Set paths
-path_pihole = "/etc/pihole"
-path_legacy_regex = os.path.join(path_pihole, "regex.list")
-path_legacy_mmotti_regex = os.path.join(path_pihole, "mmotti-regex.list")
-path_pihole_db = os.path.join(path_pihole, "gravity.db")
+    Args:
+        config_list (list): The list of regular expressions read in from the csv 
 
-if not verify(path):
-    exit(1)
+    Returns:
+        list: A list of tuples containing the parsed values from config_list
+    """
+    parsed_list = list()
+    for config_item in config_list:
+        config_items = config_item.split(',')
+        if(len(config_items)) < 3:
+            continue
+        parsed_list.append(tuple(config_items[REGEX_INDEX], config_items[COMMENT_INDEX], config_items[GROUPS_INDEX]))
+    return parsed_list
 
-# Determine whether we are using DB or not
-if os.path.isfile(path_pihole_db) and os.path.getsize(path_pihole_db) > 0:
-    logging.error("Pi-Hole DB not detected")
-    exit(1)
+def connect():
+    # Create a DB connection
+    logging.info("Connecting to {}".format(path_pihole_db))
 
-block_list = read("regex/block.csv")
-logging.info(f"{len(regexps_remote)} regexps collected from {url_regexps_remote}")
+    try:
+        conn = sqlite3.connect(path_pihole_db)
+    except sqlite3.Error as e:
+        logging.error(e)
+        exit(1)
 
-# Create a DB connection
-logging.info(f"Connecting to {path_pihole_db}")
+    # Create a cursor object
+    c = conn.cursor()
 
-try:
-    conn = sqlite3.connect(path_pihole_db)
-except sqlite3.Error as e:
-    logging.error(e)
-    exit(1)
+    # Add / update remote regexps
+    logging.info("Adding / updating regexps in the DB")
 
-# Create a cursor object
-c = conn.cursor()
-
-# Add / update remote regexps
-logging.info("Adding / updating regexps in the DB")
-
-c.executemany(
-    "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) "
-    "VALUES (3, ?, 1, ?)",
-    [(x, install_comment) for x in sorted(regexps_remote)],
-)
-c.executemany(
-    "UPDATE domainlist " "SET comment = ? WHERE domain in (?) AND comment != ?",
-    [(install_comment, x, install_comment) for x in sorted(regexps_remote)],
-)
-
-conn.commit()
-
-# Fetch all current mmotti regexps in the local db
-c.execute(
-    "SELECT domain FROM domainlist WHERE type = 3 AND comment = ?", (install_comment,)
-)
-regexps_mmotti_local_results = c.fetchall()
-regexps_mmotti_local.update([x[0] for x in regexps_mmotti_local_results])
-
-# Remove any local entries that do not exist in the remote list
-# (will only work for previous installs where we've set the comment field)
-logging.info("Identifying obsolete regexps")
-regexps_remove = regexps_mmotti_local.difference(regexps_remote)
-
-if regexps_remove:
-    logging.info("Removing obsolete regexps")
     c.executemany(
-        "DELETE FROM domainlist WHERE type = 3 AND domain in (?)",
-        [(x,) for x in regexps_remove],
+        "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) "
+        "VALUES (3, ?, 1, ?)",
+        [(x, install_comment) for x in sorted(block_list)],
     )
+    c.executemany(
+        "UPDATE domainlist " "SET comment = ? WHERE domain in (?) AND comment != ?",
+        [(install_comment, x, install_comment) for x in sorted(block_list)],
+    )
+
     conn.commit()
 
-# Delete mmotti-regex.list as if we've migrated to the db, it's no longer needed
-if os.path.exists(path_legacy_mmotti_regex):
-    os.remove(path_legacy_mmotti_regex)
+    # Fetch all current mmotti regexps in the local db
+    c.execute(
+        "SELECT domain FROM domainlist WHERE type = 3 AND comment = ?", (install_comment,)
+    )
+    regexps_mmotti_local_results = c.fetchall()
+    regexps_mmotti_local.update([x[0] for x in regexps_mmotti_local_results])
 
-logging.info("Restarting Pi-hole")
-subprocess.run(cmd_restart, stdout=subprocess.DEVNULL)
+    # Remove any local entries that do not exist in the remote list
+    # (will only work for previous installs where we've set the comment field)
+    logging.info("Identifying obsolete regexps")
+    regexps_remove = regexps_mmotti_local.difference(block_list)
 
-# Prepare final result
-logging.info("Done - Please see your installed regexps below\n")
+    if regexps_remove:
+        logging.info("Removing obsolete regexps")
+        c.executemany(
+            "DELETE FROM domainlist WHERE type = 3 AND domain in (?)",
+            [(x,) for x in regexps_remove],
+        )
+        conn.commit()
 
-c.execute("Select domain FROM domainlist WHERE type = 3")
-final_results = c.fetchall()
-regexps_local.update(x[0] for x in final_results)
+    # Delete mmotti-regex.list as if we've migrated to the db, it's no longer needed
+    if os.path.exists(path_legacy_mmotti_regex):
+        os.remove(path_legacy_mmotti_regex)
 
-print(*sorted(regexps_local), sep="\n")
+    logging.info("Restarting Pi-hole")
+    subprocess.run(cmd_restart, stdout=subprocess.DEVNULL)
 
-conn.close()
+    # Prepare final result
+    logging.info("Done - Please see your installed regexps below\n")
+
+    c.execute("Select domain FROM domainlist WHERE type = 3")
+    final_results = c.fetchall()
+    regexps_local.update(x[0] for x in final_results)
+
+    print(*sorted(regexps_local), sep="\n")
+
+    conn.close()
+
+if __name__ == '__main__':
+    # Set paths
+    path_pihole = "/etc/pihole"
+    path_pihole_db = os.path.join(path_pihole, "gravity.db")
+
+    if not verify(path_pihole):
+        exit(1)
+
+    # Determine whether we are using DB or not
+    if os.path.isfile(path_pihole_db) and os.path.getsize(path_pihole_db) > 0:
+        logging.error("Pi-Hole DB not detected")
+        exit(1)
+
+    block_list = read("regex/block.csv")
+    parsed_list = parse(block_list)
