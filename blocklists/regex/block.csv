@@ -2,9 +2,9 @@
 (\.|^)youtube\.com$,YouTube Content,Kids
 ^(.+[_.-])?(facebook|fb(cdn|sbx)?|tfbnw)\.[^.]+$,Facebook,Kids
 ^(.+[_.-])?(twitter|twimg|cms-twdigitalassets)\.(co\.)?[^.]+$,Twitter,Kids
-(^|\.)(muscdn|tiktok|ttlivecdn).+\.(com|org)$,TikTok Primary,Kids
-(^|\.)musical.+\.ly$,Musical.ly,Kids
-(^|\.)whatsapp\.com$,Whats App,Kids
+(^|\.)(muscdn|tiktok|ttlivecdn).+\.(com|org)$,TikTok Primary,Default
+(^|\.)musical.+\.ly$,Musical.ly,Default
+(^|\.)whatsapp\.com$,Whats App,Default
 (^|\.)(snapchat|snapads).+\.com$,Snapchat,Kids
 ^(.+[_.-])?eulerian\.net$,From mmotti,Default
 ^(.+[_.-])?dnsdelegation\.io$,From mmotti,Default
