@@ -147,7 +147,7 @@ if __name__ == "__main__":
         logging.error("Pi-Hole DB not detected")
         exit(1)
 
-    block_list = read("regex/block.csv")
+    block_list = read("blocklists/regex/block.csv")
     parsed_list = parse(block_list)
 
     print(parsed_list)
